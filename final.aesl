@@ -1,0 +1,113 @@
+<!DOCTYPE aesl-source>
+<network>
+
+
+<!--list of global events-->
+
+
+<!--list of constants-->
+<constant value="0" name="STOPPED"/>
+<constant value="1" name="FORWARD"/>
+<constant value="2" name="RIGHT"/>
+<constant value="3" name="LEFT"/>
+<constant value="300" name="TARGET"/>
+<constant value="3000" name="THRESHOLD"/>
+<constant value="50" name="GROUNDTHRESHOLD"/>
+
+
+<!--show keywords state-->
+<keywords flag="true"/>
+
+
+<!--node thymio-II-->
+<node nodeId="1" name="thymio-II">var state = STOPPED
+var targetPattern[3]
+var pattern[3]
+var timeLimit = 8
+var sector[8]
+
+callsub stop
+
+onevent button.backward
+  callsub stop
+  
+onevent button.forward
+  callsub forward
+  
+onevent button.right
+  callsub capture
+  targetPattern = pattern
+  
+onevent timer1
+  if timeLimit > 0 then
+    timeLimit = timeLimit - 1
+    timer.period[1] = 30000
+  else
+    callsub stop
+  end
+  
+onevent prox
+  if state != STOPPED then
+    if prox.horizontal[0] > THRESHOLD and prox.horizontal[4] > THRESHOLD then
+  	   motor.left.target = 0
+  	   motor.right.target = 0
+  	   callsub capture
+  	   
+  	 end
+  	 
+    if prox.ground.delta[0] &lt; GROUNDTHRESHOLD then
+      callsub turnLeft
+    else
+      callsub forward
+    end
+  end
+  
+sub capture
+  pattern = [1,1,1]
+  if prox.horizontal[1] > THRESHOLD then pattern[0] = 0 end
+  if prox.horizontal[2] > THRESHOLD then pattern[1] = 0 end
+  if prox.horizontal[3] > THRESHOLD then pattern[2] = 0 end
+  
+  if pattern[0] == 0 then
+    if pattern[1] == 0 then
+    	call leds.top(32,32,32)
+    else
+    	call leds.top(32,0,0)
+    end
+  else
+    if pattern[1] == 0 then
+    	call leds.top(0,0,32)
+    else
+    	call leds.top(0,32,0)
+    end
+  end
+
+sub stop
+  timer.period[0] = 0
+  timer.period[1] = 0
+  motor.left.target = 0
+  motor.right.target = 0
+  state = STOPPED
+  
+sub forward
+  motor.left.target = TARGET
+  motor.right.target = TARGET
+  state = FORWARD
+  
+sub backward
+  motor.left.target = -TARGET
+  motor.right.target = -TARGET
+  
+  
+sub turnRight
+  motor.left.target = TARGET
+  motor.right.target = -TARGET
+  state = RIGHT
+
+sub turnLeft
+  motor.left.target = -TARGET
+  motor.right.target = TARGET
+  state = LEFT</node>
+
+
+</network>
