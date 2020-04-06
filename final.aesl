@@ -9,10 +9,12 @@
 <constant value="0" name="STOPPED"/>
 <constant value="1" name="FORWARD"/>
 <constant value="2" name="RIGHT"/>
-<constant value="3" name="LEFT"/>
+<constant value="3" name="TARGETING"/>
+<constant value="4" name="RETURNING"/>
 <constant value="300" name="TARGET"/>
 <constant value="3000" name="THRESHOLD"/>
 <constant value="50" name="GROUNDTHRESHOLD"/>
+<constant value="32" name="LED"/>
 
 
 <!--show keywords state-->
@@ -23,52 +25,78 @@
 <node nodeId="1" name="thymio-II">var state = STOPPED
 var targetPattern[3]
 var pattern[3]
-var timeLimit = 8
-var sector[8]
+var location[8] = [125,125,125,125,125,125,125,125]
+var world[8] = [1,0,0,0,1,1,0,0]
+var temp
+var i
+var hit
+var sum
+var timeLimit = 7
+var min = 0
+var max = 0
+var mean = 0
 
-callsub stop
+callsub stop # don't want to move once the program is loaded
 
-onevent button.backward
+onevent button.backward # stop when back button is pressed
   callsub stop
   
 onevent button.forward
-  callsub forward
+  #timer.period[1] = 30000 # set the 4 minute timer
+  #call leds.top(0,0,0)# turn off rgb leds
+  #call leds.circle(32,32,32,32,32,32,32,32) # set the circle leds to a uniform pattern
+  #callsub forward #begin moving forward
+  callsub cycleLocation         
+  callsub location           
+  callsub displayLocation 
   
-onevent button.right
+  
+onevent button.right #capture the target pattern
   callsub capture
   targetPattern = pattern
   
-onevent timer1
-  if timeLimit > 0 then
+onevent button.center # TODO remove later, just used for testing localization
+  location = [125,125,125,125,125,125,125,125]
+  call math.fill(location, 1000/8)
+  callsub displayLocation
+  
+onevent timer0 # timer used to signal localization that the robot is in a new sector
+  timer.period[0] = 0
+  callsub stop # TODO remove
+  callsub location
+
+onevent timer1 # controls the 4 minute timer
+  if timeLimit > 0 then # counts down while the robot still has time
     timeLimit = timeLimit - 1
     timer.period[1] = 30000
   else
+    call leds.top(0,0,0)# after 4 minutes, rgb leds are turned off, robot is stopped
     callsub stop
   end
   
 onevent prox
   if state != STOPPED then
-    if prox.horizontal[0] > THRESHOLD and prox.horizontal[4] > THRESHOLD then
-  	   motor.left.target = 0
-  	   motor.right.target = 0
-  	   callsub capture
-  	   
-  	 end
+    call math.stat(prox.horizontal, min, max, mean)
+    if state == FORWARD or state == RIGHT then # if the robot is cycling the arena
+      if max > THRESHOLD then # avoid walls
+  	      callsub turnRight
+  	    else callsub forward
+  	    end
+  	  end
   	 
-    if prox.ground.delta[0] &lt; GROUNDTHRESHOLD then
-      callsub turnLeft
-    else
-      callsub forward
-    end
+  	 if prox.ground.delta[0] > 800 then # when the robot passes a tan line
+  	 	timer.period[0] = 500 # perform localization in half a second
+  	 	callsub cycleLocation # cycle the location array clockwise
+  	 end
   end
   
 sub capture
-  pattern = [1,1,1]
-  if prox.horizontal[1] > THRESHOLD then pattern[0] = 0 end
+  pattern = [1,1,1] # set a default pattern
+  if prox.horizontal[1] > THRESHOLD then pattern[0] = 0 end # capture based on the detected values
   if prox.horizontal[2] > THRESHOLD then pattern[1] = 0 end
   if prox.horizontal[3] > THRESHOLD then pattern[2] = 0 end
   
-  if pattern[0] == 0 then
+  if pattern[0] == 0 then # set the rgb leds based on the detected pattern
     if pattern[1] == 0 then
     	call leds.top(32,32,32)
     else
@@ -81,33 +109,67 @@ sub capture
     	call leds.top(0,32,0)
     end
   end
+  
+sub displayLocation # toggle the circle leds based on the current location
+  call leds.circle(location[0]/LED, location[1]/LED, location[2]/LED,
+  	                location[3]/LED, location[4]/LED, location[5]/LED, 
+  	                location[6]/LED, location[7]/LED)
+
+sub location
+  # so long as the robot is over the drak gray or light gray sectors
+  #if prox.ground.delta[0] > 200 and prox.ground.delta[0] &lt; 800 then
+    # if the robot is over the dark gray then hit = 1
+    # otherwide hit = 0
+    if prox.ground.delta[0] &lt; 300 then hit = 1 else hit = 0 end
+    for i in 0:7 do
+      if world[i] == hit then
+        call math.mul(location[i], location[i], 1)
+      else
+      	call math.mul(location[i], location[i], 0)
+      end 
+    end
+    callsub normalize 
+  #end
+
+# normalize the total sum of the location array to 1000
+sub normalize	
+  sum = 0
+  for i in 0:7 do sum += location[i] end
+  for i in 0:7 do call math.muldiv(location[i], location[i],1000,sum) end 
+  #callsub displayLocation
+
+sub cycleLocation # cycle the location array clockwise
+  temp = location[7]
+  for i in 7:1 step -1 do
+    location[i] = location[i-1]
+  end
+  location[0] = temp
 
 sub stop
-  timer.period[0] = 0
+  timer.period[0] = 0 # stop the timers
   timer.period[1] = 0
-  motor.left.target = 0
+  motor.left.target = 0 # stop the robot
   motor.right.target = 0
+  timeLimit = 7 # reset the time limit
   state = STOPPED
   
-sub forward
+sub forward # move forward
   motor.left.target = TARGET
   motor.right.target = TARGET
   state = FORWARD
   
-sub backward
+sub backward # move backward
   motor.left.target = -TARGET
   motor.right.target = -TARGET
   
-  
-sub turnRight
+sub turnRight # turn right
   motor.left.target = TARGET
   motor.right.target = -TARGET
   state = RIGHT
 
-sub turnLeft
+sub turnLeft # turn left
   motor.left.target = -TARGET
-  motor.right.target = TARGET
-  state = LEFT</node>
+  motor.right.target = TARGET</node>
 
 
 </network>
