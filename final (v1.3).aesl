@@ -11,6 +11,7 @@
 <constant value="2" name="RIGHT"/>
 <constant value="4" name="CHECKPATTERN"/>
 <constant value="5" name="BACKWARD"/>
+<constant value="6" name="FINISH"/>
 <constant value="200" name="TARGET"/>
 <constant value="2000" name="THRESHOLD"/>
 <constant value="10" name="GROUNDTHRESHOLD"/>
@@ -18,7 +19,6 @@
 <constant value="32" name="LED"/>
 <constant value="75" name="HIT"/>
 <constant value="25" name="MISS"/>
-<constant value="6" name="FINISH"/>
 
 
 <!--show keywords state-->
@@ -34,14 +34,6 @@ var sector[8]
 var newSector =  1 # 1 is true, -1 is false
 var checkStage = 0  # 0 is not trying to check pattern. 1, 2, 3, and 4 are the stages of checking the pattern
 var patternFound = -1  # -1 is false and 1 is true
-# finished: 1. go to the pattern and check what is the pattern; 2.turn right 90 degrees when the robot encounters a corner
-#			3. stop when 4 minutes are passed
-# unfinished: 1. determine where the robot is; 2. beep when the pattern is found; 3. show where the pattern is using circle LEDs
-#			4. return to the finish sector
-# more things to add: 1. fault detection and recover from fault
-# if change the speed of the robot to 300, then the approximate values for the timers are 615, 615, and 500 if I remember it correctly. The two 615's are for the timer after turnRight and checkStage 4, and the 500 is for the timer in sub checkPattern. However it is more likely for the robot to go wrong (hit wall) if speed is changed greater
-# edit by Haoyi Zhang
-
 var world[8]= [0,1,0,0,0,1,1,0] # 1 = dark gray, 0 = light gray
 var beliefs[8] # Array to place values on which square the robot is most likely in
 var i       
@@ -52,254 +44,256 @@ var firstScan = 1 # Determines whether or not the robot is scanning the square f
 var reverse = 0
 var once = 0
 
-# finished: 1. The robot stops when it encounters the targetPattern. 2. Localization (displayed on circle leds). 
-# unfinished 1. Returning to the big F in the center. 2. The robot seems to skip following the black line on tile on sometimes. Not sure why.
-# edit by Matthew Roberts
-
 callsub stop
 
 onevent button.backward
-	callsub stop
+  callsub stop
 
 onevent button.forward
-	when button.forward == 0 do
-    	timer.period[1] = 30000
-		callsub forward
-	end
+  when button.forward == 0 do
+    timer.period[1] = 30000
+    callsub forward
+  end
 
 onevent button.right
-	callsub captureRight
-	targetPattern = pattern
-	call math.fill(beliefs, 1000/8)
-    callsub display_beliefs 
+  callsub captureRight
+  targetPattern = pattern
+  call math.fill(beliefs, 1000/8)
+  callsub display_beliefs 
 
 onevent timer1
-	if timeLimit > 0 then
-		timeLimit = timeLimit - 1
-		timer.period[1] = 30000
-	else
-		callsub stop
-	end
+  if timeLimit > 0 then
+    timeLimit = timeLimit - 1
+    timer.period[1] = 30000
+  else
+    callsub stop
+  end
 
 onevent timer0
-	timer.period[0] = 0
+  timer.period[0] = 0
 
-	if state == CHECKPATTERN then
-		if checkStage == 1  then
-			motor.left.target = -TARGET
-			checkStage = 2
-		end
-		if checkStage == 4 then
-			callsub forward
-		end
-	end
+  if state == CHECKPATTERN then
+    if checkStage == 1  then
+      motor.left.target = -TARGET
+      checkStage = 2
+    end
+    if checkStage == 4 then
+      callsub forward
+    end
+  end
 
-	if state == RIGHT and once == 0 then
-		callsub forward
-	end
+  if state == RIGHT and once == 0 then
+    callsub forward
+  end
 	
 	if state == RIGHT and once == 1 then
-		callsub backward
-	end
+    callsub backward
+  end
 	
 onevent prox
-	if state != STOPPED then
+  if state != STOPPED then
 
-		if  state == FORWARD and prox.horizontal[1] > 2000 and prox.horizontal[3] > 2000 then
-			callsub turnRight
-		end
+    if  state == FORWARD and prox.horizontal[1] > 2000 and prox.horizontal[3] > 2000 then
+      callsub turnRight
+    end
 
-		# used to determine if the robot enters a new sector
-		# could use prox.ground.delta to check the colour of the ground in here
-		if  (state == FORWARD or state == BACKWARD) and prox.ground.delta[0] == DIVIDERTHRESHOLD then
-			newSector = 1
-			firstScan = 1
-		end
+    # used to determine if the robot enters a new sector
+    # could use prox.ground.delta to check the colour of the ground in here
+    if  (state == FORWARD or state == BACKWARD) and prox.ground.delta[0] == DIVIDERTHRESHOLD then
+      newSector = 1
+      firstScan = 1
+    end
 		
-		if state == FORWARD and (prox.ground.delta[0] == 250 or prox.ground.delta[0] == 750) and firstScan == 1 then
-			firstScan = -1
-			callsub rotate          
-   			callsub sense           
-    		callsub display_beliefs
-		end
+    if state == FORWARD and (prox.ground.delta[0] == 250 or prox.ground.delta[0] == 750) and firstScan == 1 then
+      firstScan = -1
+      callsub rotate          
+      callsub sense           
+      callsub display_beliefs
+    end
 		
-		# used to determine the black line on the ground to lead the robot to check the pattern on the wall
-		if  state == FORWARD and (prox.ground.delta[0] &lt;= GROUNDTHRESHOLD or prox.ground.delta[1] &lt;= GROUNDTHRESHOLD) and newSector == 1 then
-			newSector = -1
-			callsub checkPattern
-		end
+    # used to determine the black line on the ground to lead the robot to check the pattern on the wall
+    if  state == FORWARD and (prox.ground.delta[0] &lt;= GROUNDTHRESHOLD or prox.ground.delta[1] &lt;= GROUNDTHRESHOLD) and newSector == 1 then
+      newSector = -1
+      callsub checkPattern
+    end
 
-		# contains different stages that the robot follows in order to get to the pattern on the wall and leave from it
-		# stage one --> go pass the black line on the ground. Once the timer is activated, then turn to stage two
-		# stage two --> turn left to detect the black tape. Once detect the tape, go to stage three
-		# stage three --> follows the tape using the right ground sensor. Once the robot is close enough, go to stage four
-		# stage four --> turn backward and return to the normal path. state set back to forward
-		if  state == CHECKPATTERN and checkStage >= 2 then
-			if prox.ground.delta[1] &lt;= GROUNDTHRESHOLD and checkStage &lt;= 3 then
-				checkStage = 3
-				motor.left.target = TARGET
-				motor.right.target = TARGET - 100
-			end
+# contains different stages that the robot follows in order to get to the pattern on the wall and leave from it
+# stage one --> go pass the black line on the ground. Once the timer is activated, then turn to stage two
+# stage two --> turn left to detect the black tape. Once detect the tape, go to stage three
+# stage three --> follows the tape using the right ground sensor. Once the robot is close enough, go to stage four
+# stage four --> turn backward and return to the normal path. state set back to forward
+    if  state == CHECKPATTERN and checkStage >= 2 then
+      if prox.ground.delta[1] &lt;= GROUNDTHRESHOLD and checkStage &lt;= 3 then
+        checkStage = 3
+        motor.left.target = TARGET
+        motor.right.target = TARGET - 100
+      end
 
-			if prox.ground.delta[1] > GROUNDTHRESHOLD and checkStage == 3 then
-				motor.left.target = TARGET - 100
-				motor.right.target = TARGET
-			end
+      if prox.ground.delta[1] > GROUNDTHRESHOLD and checkStage == 3 then
+        motor.left.target = TARGET - 100
+        motor.right.target = TARGET
+      end
 
-			if (prox.horizontal[0] > 1500 or prox.horizontal[4] > 1500) and checkStage == 3 then
-				checkStage = 4
-				motor.left.target = 0
-				motor.right.target = 0
-				callsub capture
-			end
+      if (prox.horizontal[0] > 1500 or prox.horizontal[4] > 1500) and checkStage == 3 then
+        checkStage = 4
+        motor.left.target = 0
+        motor.right.target = 0
+        callsub capture
+      end
 
-			if checkStage == 4 then
-				motor.left.target = TARGET
-				motor.right.target = -TARGET
-				timer.period[0] = 960
-			end
-		end
+      if checkStage == 4 then
+        motor.left.target = TARGET
+        motor.right.target = -TARGET
+        timer.period[0] = 960
+      end
+    end
 
-		# used to set the robot back to forward state
-		if  state != CHECKPATTERN and state != RIGHT and prox.ground.delta[0] >= 900 and prox.ground.delta[1] >= 900 and prox.horizontal[2] &lt;= 3000 and state != BACKWARD then
-			callsub forward
-		end
+    # used to set the robot back to forward state
+    if  state != CHECKPATTERN and state != RIGHT and prox.ground.delta[0] >= 900 and prox.ground.delta[1] >= 900 and prox.horizontal[2] &lt;= 3000 and state != BACKWARD then
+      callsub forward
+    end
 
-		# if the robot found the pattern and it can locate itself and the pattern, then turn to the finish sector
-		if patternFound == 1 then
-			# the robot should go in to sector 1, 3, 5, or 7 and then call the turnRight function to get into the finish sector
-			for i in 0:7 do
-				if beliefs[i] > 500 then
-					reverse = 1
-				end
-			end
+    # if the robot found the pattern and it can locate itself and the pattern, then turn to the finish sector
+    if patternFound == 1 then
+      # the robot should go in to sector 1, 3, 5, or 7 and then call the turnRight function to get into the finish sector
+      for i in 0:7 do
+        if beliefs[i] > 500 then
+          reverse = 1
+        end
+      end
 			
-			if reverse == 1 and once == 0 then
-				once = 1
-				callsub backward
-			else patternFound = 0
-			end
-		end
+      if reverse == 1 and once == 0 then
+        once = 1
+        callsub backward
+      else patternFound = 0
+      end
+    end
 		
-		if state == BACKWARD and newSector == 1 and (prox.ground.delta[0] &lt;= GROUNDTHRESHOLD or prox.ground.delta[1] &lt;= GROUNDTHRESHOLD) then
-			callsub turnRight
-		end
+    if state == BACKWARD and newSector == 1 and (prox.ground.delta[0] &lt;= GROUNDTHRESHOLD or prox.ground.delta[1] &lt;= GROUNDTHRESHOLD) then
+      callsub turnRight
+    end
 		
-		if prox.ground.delta[0] == 1023 and state != FORWARD then
-			callsub stop
-		end
-
-	end
+    if prox.ground.delta[0] == 1023 and state != FORWARD then
+      callsub stop
+    end
+  end
 
 sub capture
-	pattern = [1,1,1]
-	if prox.horizontal[1] > THRESHOLD then pattern[0] = 0 end
-	if prox.horizontal[2] > THRESHOLD then pattern[1] = 0 end
-	if prox.horizontal[3] > THRESHOLD then pattern[2] = 0 end
+  pattern = [1,1,1]
+  if prox.horizontal[1] > THRESHOLD then pattern[0] = 0 end
+  if prox.horizontal[2] > THRESHOLD then pattern[1] = 0 end
+  if prox.horizontal[3] > THRESHOLD then pattern[2] = 0 end
 
-	if pattern[0] == 0 then
-		if pattern[1] == 0 then
-			call leds.top(32,32,32)
-		else
-			call leds.top(32,0,0)
-		end
-	else
-		if pattern[1] == 0 then
-			call leds.top(0,0,32)
-		else
-			call leds.top(0,32,0)
-		end
-	end
+  if pattern[0] == 0 then
+    if pattern[1] == 0 then
+      call leds.top(32,32,32)
+    else
+      call leds.top(32,0,0)
+    end
+  else
+    if pattern[1] == 0 then
+      call leds.top(0,0,32)
+    else
+      call leds.top(0,32,0)
+    end
+  end
 
-	if pattern[0] == targetPattern[0] then
-		if pattern[1] == targetPattern[1] then
-			if pattern[2] == targetPattern[2] then
-				patternFound = 1
-			end
-		end
-	end
+  if pattern[0] == targetPattern[0] then
+    if pattern[1] == targetPattern[1] then
+      if pattern[2] == targetPattern[2] then
+        patternFound = 1
+      end
+    end
+  end
 
 #Code snippet taken from localization lab
     
 sub display_beliefs				
-    call leds.circle( beliefs[0]/LED, beliefs[1]/LED, beliefs[2]/LED,
+  call leds.circle( beliefs[0]/LED, beliefs[1]/LED, beliefs[2]/LED,
   	                  beliefs[3]/LED, beliefs[4]/LED, beliefs[5]/LED, 
   	                  beliefs[6]/LED, beliefs[7]/LED)
 
 sub rotate						
-    temp = beliefs[7]
-    for i in 7:1 step -1 do beliefs[i] = beliefs[i-1] end
-    beliefs[0] = temp
+  temp = beliefs[7]
+  for i in 7:1 step -1 do beliefs[i] = beliefs[i-1] end
+  beliefs[0] = temp
 
 sub sense						
-    if  prox.ground.delta[1] == 250  then hit = 1 end if prox.ground.delta[1] == 750 then hit = 0 end
-    for i in 0:7 do
-          if  (hit==1 and world[i]==1) or (hit==0 and world[i]==0) then
-               call math.muldiv(beliefs[i], beliefs[i], HIT, 100)
-          else
-               call math.muldiv(beliefs[i], beliefs[i], MISS, 100)
-          end
+  if  prox.ground.delta[1] == 250  then hit = 1 end if prox.ground.delta[1] == 750 then hit = 0 end
+  for i in 0:7 do
+    if  (hit==1 and world[i]==1) or (hit==0 and world[i]==0) then
+      call math.muldiv(beliefs[i], beliefs[i], HIT, 100)
+    else
+      call math.muldiv(beliefs[i], beliefs[i], MISS, 100)
     end
-    callsub normalize 
+  end
+  callsub normalize 
 
 sub normalize	
-    sum = 0
-    for i in 0:7 do sum += beliefs[i] end
-    for i in 0:7 do call math.muldiv(beliefs[i], beliefs[i],1000,sum) end
+  sum = 0
+  for i in 0:7 do sum += beliefs[i] end
+  for i in 0:7 do call math.muldiv(beliefs[i], beliefs[i],1000,sum) end
 
 # End of taken code snippet
 
 # A practically identical capture method that does not have the for loop. Needed for the first capture in
 # order to prevent the robot from believing it immediately found the correct pattern.
 sub captureRight
-	pattern = [1,1,1]
-	if prox.horizontal[1] > THRESHOLD then pattern[0] = 0 end
-	if prox.horizontal[2] > THRESHOLD then pattern[1] = 0 end
-	if prox.horizontal[3] > THRESHOLD then pattern[2] = 0 end
+  pattern = [1,1,1]
+  if prox.horizontal[1] > THRESHOLD then pattern[0] = 0 end
+  if prox.horizontal[2] > THRESHOLD then pattern[1] = 0 end
+  if prox.horizontal[3] > THRESHOLD then pattern[2] = 0 end
 
-	if pattern[0] == 0 then
-		if pattern[1] == 0 then
-			call leds.top(32,32,32)
-		else
-			call leds.top(32,0,0)
-		end
-	else
-		if pattern[1] == 0 then
-			call leds.top(0,0,32)
-		else
-			call leds.top(0,32,0)
-		end
-	end
+  if pattern[0] == 0 then
+    if pattern[1] == 0 then
+      call leds.top(32,32,32)
+    else
+      call leds.top(32,0,0)
+    end
+  else
+    if pattern[1] == 0 then
+      call leds.top(0,0,32)
+    else
+      call leds.top(0,32,0)
+    end
+  end
 
 sub stop
-	motor.left.target = 0
-	motor.right.target = 0
-	timer.period[0] = 0
-	timer.period[1] = 0
-	state = STOPPED
+  motor.left.target = 0
+  motor.right.target = 0
+  timer.period[0] = 0
+  timer.period[1] = 0
+  reverse = 0
+  once = 0
+  timeLimit = 7
+  newSector =  1 
+  checkStage = 0
+  patternFound = -1
+  firstScan = 1
+  state = STOPPED
 
 sub forward
-	motor.left.target = TARGET
-	motor.right.target = TARGET
-	state = FORWARD
+  motor.left.target = TARGET
+  motor.right.target = TARGET
+  state = FORWARD
 
 sub backward
-	motor.left.target = -TARGET
-	motor.right.target = -TARGET
-	state = BACKWARD
+  motor.left.target = -TARGET
+  motor.right.target = -TARGET
+  state = BACKWARD
 
 sub turnRight
-	motor.left.target = TARGET
-	motor.right.target = -TARGET
-	state = RIGHT
-	timer.period[0] = 960
+  motor.left.target = TARGET
+  motor.right.target = -TARGET
+  state = RIGHT
+  timer.period[0] = 960
 
 sub checkPattern
-	motor.left.target = TARGET
-	motor.right.target = TARGET
-	state = CHECKPATTERN
-	checkStage = 1
-	timer.period[0] = 1000 </node>
+  motor.left.target = TARGET
+  motor.right.target = TARGET
+  state = CHECKPATTERN
+  checkStage = 1
+  timer.period[0] = 1000 </node>
 
 
 </network>
