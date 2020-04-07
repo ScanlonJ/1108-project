@@ -51,6 +51,8 @@ onevent button.backward
 
 onevent button.forward
   when button.forward == 0 do
+    call leds.top(0,0,0)
+    call leds.circle(32,32,32,32,32,32,32,32)
     timer.period[1] = 30000
     callsub forward
   end
@@ -66,6 +68,7 @@ onevent timer1
     timeLimit = timeLimit - 1
     timer.period[1] = 30000
   else
+    call leds.top(0,0,0)
     callsub stop
   end
 
@@ -186,7 +189,11 @@ sub capture
 
   if pattern[0] == 0 then
     if pattern[1] == 0 then
-      call leds.top(32,32,32)
+      if pattern[2] == 0 then
+        call leds.top(32,32,32)
+      else
+        call leds.top(32,32,32)
+      end
     else
       call leds.top(32,0,0)
     end
@@ -194,7 +201,11 @@ sub capture
     if pattern[1] == 0 then
       call leds.top(0,0,32)
     else
-      call leds.top(0,32,0)
+      if pattern[2] == 0 then
+        call leds.top(0,32,0)
+      else
+        call leds.top(0,0,0)
+      end
     end
   end
 
@@ -246,7 +257,11 @@ sub captureRight
 
   if pattern[0] == 0 then
     if pattern[1] == 0 then
-      call leds.top(32,32,32)
+      if pattern[2] == 0 then
+        call leds.top(32,32,32)
+      else
+        call leds.top(32,32,32)
+      end
     else
       call leds.top(32,0,0)
     end
@@ -254,7 +269,11 @@ sub captureRight
     if pattern[1] == 0 then
       call leds.top(0,0,32)
     else
-      call leds.top(0,32,0)
+      if pattern[2] == 0 then
+        call leds.top(0,32,0)
+      else
+        call leds.top(0,0,0)
+      end
     end
   end
 
